@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<extension
+	version="4.2"
+	type="plugin"
+	group="privacy"
+	method="upgrade">
+	<name>PLG_PRIVACY_ACYMAILING</name>
+	<description>PLG_PRIVACY_ACYMAILING_DESCRIPTION</description>
+	<version>___VERSION___</version>
+	<creationDate>___VERSIONDATE___</creationDate>
+	<author>___AUTHOR_XML___</author>
+	<authorEmail>___EMAIL___</authorEmail>
+	<authorUrl>___LINK___</authorUrl>
+	<license>___LICENSE___</license>
+	<copyright>___COPYRIGHT___</copyright>
+	<namespace path="src">___NAMESPACE___</namespace>
+	<scriptfile>acymailing.script.php</scriptfile>
+	<files>
+		<folder plugin="acymailing">src</folder>
+		<folder>language</folder>
+		<folder>services</folder>
+	</files>
+</extension>
