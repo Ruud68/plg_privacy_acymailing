@@ -1,7 +1,16 @@
 <?php
 
 /**
- * [___HEADER_PHP___]
+ * Acymailing - Privacy plugin
+ *
+ * @version     ___VERSION___
+ * @package     Joomla
+ * @subpackage  plg_privacy_acymailing
+ *
+ * @author      Ruud van Lent <info@onlinecommunityhub.nl>
+ * @copyright   Copyright (C) 2022 - ___CURRENTYEAR___ OnlineCommunityHub (J.L.R. van Lent Holding B.V.). All rights reserved.
+ * @license     GNU/GPL version 3 or later
+ * @link        https://onlinecommunityhub.nl
  */
 
 namespace ___NAMESPACE___\Extension;
