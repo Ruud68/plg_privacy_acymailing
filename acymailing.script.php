@@ -60,11 +60,9 @@ class PlgPrivacyKunenaInstallerScript
             return false;
         }
 
-        $type = strtolower($type);
+        $this->installedVersion = OchInstallerScriptHelper::getInstalledVersion('plugin', 'kunena', 'privacy');
 
-        if ($type == 'update') {
-            $this->installedVersion = OchInstallerScriptHelper::getInstalledVersion('plugin', 'kunena', 'privacy');
-
+        if (strtolower($type) == 'update' && $this->installedVersion) {
             // Load all maintenance variables
             $this->setPreFlightMaintenanceVariables();
 
@@ -100,7 +98,7 @@ class PlgPrivacyKunenaInstallerScript
     {
         $this->maintenanceVariables['rename_files'] = [];
 
-        $this->maintenanceVariables['delete_files'] = [];
+        $this->maintenanceVariables['remove_files'] = [];
 
         $this->maintenanceVariables['remove_directories'] = [];
 

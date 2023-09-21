@@ -58,9 +58,19 @@ class OchInstallerScriptHelper
 
         $db->setQuery($query);
 
-        $return = json_decode($db->loadResult());
+        $result = $db->loadResult();
 
-        return $return->version;
+        if ($result) {
+            $return = json_decode($result);
+
+            if ($return) {
+                return $return->version;
+            } else {
+                return 0;
+            }
+        } else {
+            return 0;
+        }
     }
 
     /**
@@ -160,19 +170,25 @@ class OchInstallerScriptHelper
 
             foreach ($varRemoveFiles as $removeFile) {
                 if (version_compare($installedVersion, $removeFile['version'], $removeFile['compare'])) {
-                    if (file_exists($removeFile['file'])) {
-                        if (File::delete($removeFile['file'])) {
-                            $application->enqueueMessage(
-                                'Obsolete (left-over from previous release) file "' . $removeFile['file']
-                                    . '" successfully removed.',
-                                'Message'
-                            );
-                        } else {
-                            $application->enqueueMessage(
-                                'File "' . $removeFile['file']
-                                    . '" (left-over from previous release) could not be removed, please remove manually.',
-                                'Warning'
-                            );
+                    if (\is_string($removeFile['file'])) {
+                        $removeFile['file'] = (array) $removeFile['file'];
+                    }
+
+                    foreach ($removeFile['file'] as $file) {
+                        if (file_exists($file)) {
+                            if (File::delete($file)) {
+                                $application->enqueueMessage(
+                                    'Obsolete (left-over from previous release) file "' . $file
+                                        . '" successfully removed.',
+                                    'Message'
+                                );
+                            } else {
+                                $application->enqueueMessage(
+                                    'File "' . $file
+                                        . '" (left-over from previous release) could not be removed, please remove manually.',
+                                    'Warning'
+                                );
+                            }
                         }
                     }
                 }
@@ -239,19 +255,25 @@ class OchInstallerScriptHelper
 
             foreach ($varRemoveDirectories as $removeDirectory) {
                 if (version_compare($installedVersion, $removeDirectory['version'], $removeDirectory['compare'])) {
-                    if (is_dir($removeDirectory['folder'])) {
-                        if (Folder::delete($removeDirectory['folder'])) {
-                            $application->enqueueMessage(
-                                'Obsolete (left-over from previous release) directory "' . $removeDirectory['folder']
-                                    . '" successfully removed.',
-                                'Message'
-                            );
-                        } else {
-                            $application->enqueueMessage(
-                                'Directory "' . $removeDirectory['folder']
-                                    . '" (left-over from previous release) could not be removed, please remove manually.',
-                                'Warning'
-                            );
+                    if (\is_string($removeDirectory['folder'])) {
+                        $removeDirectory['folder'] = (array) $removeDirectory['folder'];
+                    }
+
+                    foreach ($removeDirectory['folder'] as $folder) {
+                        if (is_dir($folder)) {
+                            if (Folder::delete($folder)) {
+                                $application->enqueueMessage(
+                                    'Obsolete (left-over from previous release) directory "' . $folder
+                                        . '" successfully removed.',
+                                    'Message'
+                                );
+                            } else {
+                                $application->enqueueMessage(
+                                    'Directory "' . $folder
+                                        . '" (left-over from previous release) could not be removed, please remove manually.',
+                                    'Warning'
+                                );
+                            }
                         }
                     }
                 }
@@ -415,5 +437,26 @@ class OchInstallerScriptHelper
                 }
             }
         }
+    }
+
+    /**
+     * Method to enable a plugin on installation
+     * 
+     * @param   string  $plugin  The name of the plugin to enable
+     * @param   string  $folder  The folder the plugin is located in
+     *
+     * @return void
+     */
+    public static function enablePlugin($plugin, $folder): void
+    {
+        $db    = Factory::getDbo();
+        $query = $db->getQuery(true)
+            ->update('#__extensions')
+            ->set($db->quoteName('enabled') . ' = 1')
+            ->where($db->quoteName('type') . ' = ' . $db->quote('plugin'))
+            ->where($db->quoteName('element') . ' = ' . $db->quote($plugin))
+            ->where($db->quoteName('folder') . ' = ' . $db->quote($folder));
+        $db->setQuery($query);
+        $db->execute();
     }
 }

@@ -25,6 +25,9 @@ use Joomla\CMS\MVC\Model\BaseDatabaseModel;
 use Joomla\CMS\Table\Table;
 use Joomla\CMS\Uri\Uri;
 use Joomla\CMS\Version;
+use Joomla\Component\Privacy\Administrator\Export\Domain;
+use Joomla\Component\Privacy\Administrator\Export\Field;
+use Joomla\Component\Privacy\Administrator\Export\Item;
 use Joomla\Database\DatabaseDriver;
 use Joomla\Database\ParameterType;
 
@@ -43,7 +46,7 @@ class OchHelper
      * @param   bool     $strip     Strip code and markup
      * @param   string   $ellipsis  String to use as ellipsis marker
      *
-     * @version 20200121
+     * @version 20230518
      *
      * @return string
      */
@@ -77,7 +80,7 @@ class OchHelper
                     $len = $len - mb_strlen($ellipsis);
                 }
 
-                $result = mb_substr($result, 0, $len) . $ellipsis;
+                $result = trim(mb_substr($result, 0, $len)) . $ellipsis;
             }
         } else {
             if (strlen($result) > $len && $len !== 0) {
@@ -85,7 +88,7 @@ class OchHelper
                     $len = $len - strlen($ellipsis);
                 }
 
-                $result = substr($result, 0, $len) . $ellipsis;
+                $result = trim(substr($result, 0, $len)) . $ellipsis;
             }
         }
 
@@ -124,7 +127,7 @@ class OchHelper
 
         $response   = false;
         $hash       = md5($element);
-        $downloadId = trim($downloadId);
+        $downloadId = trim((string) $downloadId);
 
         if (is_object($cache) && $readCache === true) {
             // Get response from cache
@@ -360,6 +363,26 @@ class OchHelper
     }
 
     /**
+     * Method to determine if we are on Joomla 5.x
+     *
+     * @param   string  $client  Determine if we are on administrator or site
+     *
+     * @return boolean
+     */
+    public static function isJoomla5($client = '')
+    {
+        $version = new Version();
+
+        $isJoomla5 = $version::MAJOR_VERSION == 5 ? true : false;
+
+        if (empty($client)) {
+            return $isJoomla5;
+        }
+
+        return ($isJoomla5 && Factory::getApplication()->isClient($client));
+    }
+
+    /**
      * Method to check if we are on a specified joomla version
      *
      * @param   string  $version  the version to check
@@ -389,7 +412,7 @@ class OchHelper
         // Set default options
         $options['relative'] = isset($options['relative']) ? $options['relative'] : false;
 
-        $wa        = self::isJoomla4() ? Factory::getApplication()->getDocument()->getWebAssetManager() : false;
+        $wa        = self::isJoomla3() ? false : Factory::getApplication()->getDocument()->getWebAssetManager();
         $pathInfo  = pathinfo($file);
         $assetName = $pathInfo['filename'] . '.' . $pathInfo['extension'];
         $result    = false;
@@ -464,14 +487,14 @@ class OchHelper
      */
     public static function getModel($component = 'com_content', $model = 'article', $location = 'site', array $config = ['ignore_request' => true])
     {
-        if (self::isJoomla4()) {
-            $model = Factory::getApplication()->bootComponent($component)->getMVCFactory()->createModel(ucfirst($model), ucfirst($location), $config);
-        } else {
+        if (self::isJoomla3()) {
             $path = ($location == 'site') ? JPATH_SITE : JPATH_ADMINISTRATOR;
 
             BaseDatabaseModel::addIncludePath($path . '/components/' . $component . '/models', 'ContentModel');
             Table::addIncludePath($path . '/components/' . $component . '/tables');
             $model = BaseDatabaseModel::getInstance(ucfirst($model), 'ContentModel', $config);
+        } else {
+            $model = Factory::getApplication()->bootComponent($component)->getMVCFactory()->createModel(ucfirst($model), ucfirst($location), $config);
         }
 
         return $model;
@@ -482,18 +505,27 @@ class OchHelper
      *
      * @param   DatabaseDriver  $db           The Database Driver
      * @param   integer         $extensionId  The extension to get the download key for
+     * @param   string          $packageName  The name for the package to get the download key for
      *
      * @since  1.3.0 (20220909)
      * @return string|boolean
      */
-    public static function getDownloadId(DatabaseDriver $db, $extensionId)
+    public static function getDownloadId(DatabaseDriver $db, $extensionId = 0, $packageName = '')
     {
         $query = $db->getQuery(true);
         $query->select('extra_query')
             ->from($db->quoteName('#__update_sites', 'us'))
             ->join('LEFT', $db->quoteName('#__update_sites_extensions', 'use') . ' ON (' . $db->quoteName('use.update_site_id') . ' = ' . $db->quoteName('us.update_site_id') . ')')
-            ->where($db->quoteName('use.extension_id') . ' = :extension_id')
-            ->bind(':extension_id', $extensionId, ParameterType::INTEGER);
+            ->join('LEFT', $db->quoteName('#__extensions', 'e') . ' ON (' . $db->quoteName('e.extension_id') . ' = ' . $db->quoteName('use.extension_id') . ')');
+
+        if ($extensionId) {
+            $query->where($db->quoteName('use.extension_id') . ' = :extension_id')
+                ->bind(':extension_id', $extensionId, ParameterType::INTEGER);
+        } elseif (!empty($packageName)) {
+            $query->where($db->quoteName('e.element') . ' = :element')
+                ->where($db->quoteName('e.type') . ' = ' . $db->quote('package'))
+                ->bind(':element', $packageName, ParameterType::STRING);
+        }
 
         $db->setQuery($query);
 
@@ -506,5 +538,133 @@ class OchHelper
         }
 
         return $key;
+    }
+
+    /**
+     * Create a new com_privacy domain object
+     * Source: Joomla\Component\Privacy\Administrator\Plugin\PrivacyPlugin [4.2.6]
+     *
+     * @param   string  $name         The domain's name
+     * @param   string  $description  The domain's description
+     *
+     * @since  1.4.0 (20230110)
+     * @return  Domain
+     */
+    public static function privacyCreateDomain($name, $description = '')
+    {
+        $domain              = new Domain();
+        $domain->name        = $name;
+        $domain->description = $description;
+
+        return $domain;
+    }
+
+    /**
+     * Create a com_privacy item object for an array
+     * Source: Joomla\Component\Privacy\Administrator\Plugin\PrivacyPlugin [4.2.6]
+     *
+     * @param   array         $data    The array data to convert
+     * @param   integer|null  $itemId  The ID of this item
+     *
+     * @since  1.4.0 (20230110)
+     * @return  Item
+     */
+    public static function privacyCreateItemFromArray(array $data, $itemId = null)
+    {
+        $item = new Item();
+        $item->id = $itemId;
+
+        foreach ($data as $key => $value) {
+            if (is_object($value)) {
+                $value = (array) $value;
+            }
+
+            if (is_array($value)) {
+                $value = print_r($value, true);
+            }
+
+            $field        = new Field();
+            $field->name  = $key;
+            $field->value = $value;
+
+            $item->addField($field);
+        }
+
+        return $item;
+    }
+
+    /**
+     * Function to anomynize user data in database table
+     *
+     * @param   string  $table     The Database Table to get the data from
+     * @param   string  $field     The Table Field to match the User ID with
+     * @param   int     $userid    The User ID
+     * @param   string  $setField  The Table Field to set the new value for
+     * @param   string  $setValue  The new value to set
+     *
+     * @since  1.4.0 (20230110)
+     * @return array
+     */
+    public static function privacyAnomynizeUserData(string $table, string $field, int $userid, string $setField, string $setValue): bool
+    {
+        $db = Factory::getDbo();
+        $query = $db->getQuery(true)
+            ->update($db->quoteName($table))
+            ->where($db->quoteName($field) . ' = :userid')
+            ->set($db->quoteName($setField) . ' = ' . $db->quote($setValue))
+            ->bind(':userid', $userid, ParameterType::INTEGER);
+
+        $db->setQuery($query);
+
+        return $db->execute();
+    }
+
+    /**
+     * Function to delete user data in database table
+     *
+     * @param   string  $table     The Database Table to get the data from
+     * @param   string  $field     The Table Field to match the User ID with
+     * @param   int     $userid    The User ID
+     *
+     * @since  1.4.0 (20230110)
+     * @return array
+     */
+    public static function privacyDeleteUserData(string $table, string $field, int $userid): bool
+    {
+        $db = Factory::getDbo();
+        $query = $db->getQuery(true)
+            ->delete($db->quoteName($table))
+            ->where($db->quoteName($field) . ' = :userid')
+            ->bind(':userid', $userid, ParameterType::INTEGER);
+
+        $db->setQuery($query);
+
+        return $db->execute();
+    }
+
+    /**
+     * Function to replace first occurence of the search string with the replacement string
+     *
+     * @param   string   $search   The string to search for
+     * @param   string   $replace  The string to replace with
+     * @param   string   $subject  The string to search in
+     * @param   boolean  $first    Replace first (true) or last (false) occurence
+     *
+     * @since  1.5.0 (20230217)
+     * @return string
+     */
+    public static function strReplaceOne($search, $replace, $subject, $first = true)
+    {
+        if ($first) {
+            $pos = strpos($subject, $search);
+        } else {
+            $pos = strrpos($subject, $search);
+        }
+
+        if ($pos !== false) {
+            $subject = substr_replace($subject, $replace, $pos, strlen($search));
+        }
+
+        return $subject;
     }
 }
