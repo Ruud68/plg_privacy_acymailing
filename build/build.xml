@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project
+    name="plg_privacy_acymailing"
+    default="build"
+    basedir=".">
+
+	<import file="/home/ruud/Code/joomla-development/PhingBuildfiles/_generic/__imports.xml" />
+
+    <property
+        name="name"
+        value="plg_privacy_acymailing" />
+    <property
+        name="nicename"
+        value="Acymailing - Privacy plugin" />
+    <property
+        name="version"
+        value="${version_${name}}" />
+    <property
+        name="startyear"
+        value="2022" />
+    <property
+        name="src"
+        value="${source}/plugins/${name}" />
+    <property
+        name="plugin"
+        value="${destination-devj4}/plugins/privacy/acymailing" />
+    <property
+        name="media"
+        value="${destination-devj4}/media/${name}" />
+    <property
+        name="namespace"
+        value="OCH\Plugin\Privacy\Acymailing" />
+    <property
+        name="namespace_helper"
+        value="${namespace}\Helper" />
+    <tstamp>
+        <format
+            property="datetime"
+            pattern="%Y%m%d-%H%M"
+            locale="nl_NL" />
+    </tstamp>
+    <target
+        name="build"
+        description="Copies files to test project site.">
+
+        <!-- <phingcall target="build_all"></phingcall> -->
+
+        <phingcall target="translate">
+            <property
+                name="directory"
+                value="${src}/language" />
+        </phingcall>
+
+        <copy
+            file="${lib}/installer/ochinstaller.script.helper.php"
+            tofile="${src}/src/Helper/OchInstallerScriptHelper.php"
+            overwrite="true" />
+        <copy
+            file="${lib}/ochhelper/ochhelper.php"
+            tofile="${src}/src/Helper/OchHelper.php"
+            overwrite="true" />
+
+        <delete dir="${plugin}" />
+        <copy todir="${plugin}">
+            <fileset dir="${src}">
+                <include name="*" />
+                <include name="language/**" />
+                <include name="services/**" />
+                <include name="src/**" />
+                <exclude name="build" />
+                <exclude name=".**" />
+                <exclude name="README.md" />
+                <exclude name="LICENSE" />
+            </fileset>
+        </copy>
+
+        <phingcall target="namespace_destination">
+            <property
+                name="namespace_source"
+                value="${plugin}" />
+        </phingcall>
+
+        <!-- <phingcall target="namespace_destination">
+            <property
+        name="namespace_source"
+                value="${media}" />
+        </phingcall> -->
+
+        <phingcall target="finish_all" />
+
+    </target>
+
+    <!-- <target
+        name="build_all"
+        description="Build scss / js files">
+    </target> -->
+</project>
