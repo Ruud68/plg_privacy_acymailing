@@ -47,14 +47,14 @@ class Acymailing extends PrivacyPlugin
      *
      * This event will not allow a super user account to be removed
      *
-     * @param   RequestTable  $request  The request record being processed
-     * @param   User          $user     The user account associated with this request if available
+     * @param   RequestTable   $request  The request record being processed
+     * @param   ?User          $user     The user account associated with this request if available
      *
      * @return  Status
      *
      * @since   1.0.0
      */
-    public function onPrivacyCanRemoveData(RequestTable $request, User $user = null)
+    public function onPrivacyCanRemoveData(RequestTable $request, ?User $user = null)
     {
         $status = new Status();
 
@@ -79,14 +79,14 @@ class Acymailing extends PrivacyPlugin
      * - #__acym_user_stat
      * - #__acym_url_click > #__acym_url | #__acym_mail
      *
-     * @param   RequestTable  $request  The request record being processed
-     * @param   User          $user     The user account associated with this request if available
+     * @param   RequestTable   $request  The request record being processed
+     * @param   ?User          $user     The user account associated with this request if available
      *
      * @return  \Joomla\Component\Privacy\Administrator\Export\Domain[]
      *
      * @since   1.0.0
      */
-    public function onPrivacyExportRequest(RequestTable $request, User $user = null)
+    public function onPrivacyExportRequest(RequestTable $request, ?User $user = null)
     {
         if (!$user) {
             return [];
@@ -113,14 +113,14 @@ class Acymailing extends PrivacyPlugin
      *
      * This event will pseudoanonymise the user data
      *
-     * @param   RequestTable  $request  The request record being processed
-     * @param   User          $user     The user account associated with this request if available
+     * @param   RequestTable   $request  The request record being processed
+     * @param   ?User          $user     The user account associated with this request if available
      *
      * @return  void
      *
      * @since   1.0.0
      */
-    public function onPrivacyRemoveData(RequestTable $request, User $user = null)
+    public function onPrivacyRemoveData(RequestTable $request, ?User $user = null)
     {
         // Removal is done when removing Joomla User
         return;

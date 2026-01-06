@@ -17,12 +17,10 @@ namespace ___NAMESPACE_HELPER___;
 // No direct access
 defined('_JEXEC') or die;
 
+use Joomla\CMS\Cache\CacheController;
+use Joomla\CMS\Cache\CacheControllerFactoryInterface;
 use Joomla\CMS\Factory;
-use Joomla\CMS\HTML\HTMLHelper;
-use Joomla\CMS\Http\HttpFactory;
 use Joomla\CMS\Language\Text;
-use Joomla\CMS\MVC\Model\BaseDatabaseModel;
-use Joomla\CMS\Table\Table;
 use Joomla\CMS\Uri\Uri;
 use Joomla\CMS\Version;
 use Joomla\Component\Privacy\Administrator\Export\Domain;
@@ -30,6 +28,8 @@ use Joomla\Component\Privacy\Administrator\Export\Field;
 use Joomla\Component\Privacy\Administrator\Export\Item;
 use Joomla\Database\DatabaseDriver;
 use Joomla\Database\ParameterType;
+use Joomla\Event\Event;
+use Joomla\Http\HttpFactory;
 
 /**
  * Class OchHelper
@@ -46,49 +46,48 @@ class OchHelper
      * @param   bool     $strip     Strip code and markup
      * @param   string   $ellipsis  String to use as ellipsis marker
      *
-     * @version 20230518
-     *
-     * @return string
+     * @return  string
+     * @since   1.5.0 (20230518)
      */
-    public static function truncate($str, $len = 0, $strip = false, $ellipsis = '...')
+    public static function truncate($str, $len = 0, $strip = \false, $ellipsis = '...'): string
     {
         // 20200121: Using MB_ functions to handle multi-byte language characters
         $result = $str;
 
         if ($strip) {
             // {tag}text{/tag} or {tag action}text{/tag}
-            $result = preg_replace('#{(.*?)}(.*?){\/(.*?)}#s', '', $result);
+            $result = \preg_replace('#{(.*?)}(.*?){\/(.*?)}#s', '', $result);
 
             // {tag} or {tag action}
-            $result = preg_replace('#{(.*?)}#s', '', $result);
+            $result = \preg_replace('#{(.*?)}#s', '', $result);
 
             // <script type="....>...</script>
-            $result = preg_replace('#<script\b[^>]*>(.*?)<\/script>#is', '', $result);
+            $result = \preg_replace('#<script\b[^>]*>(.*?)<\/script>#is', '', $result);
 
             // [widgetkit: xyz]
-            $result = preg_replace('#\[(.*?)\]#s', '', $result);
+            $result = \preg_replace('#\[(.*?)\]#s', '', $result);
 
-            $result = strip_tags($result);
-            $result = preg_replace('#\r|\n|\t|&nbsp;#', ' ', $result);
-            $result = preg_replace('#(  )#', ' ', $result);
-            $result = trim($result);
+            $result = \strip_tags($result);
+            $result = \preg_replace('#\r|\n|\t|&nbsp;#', ' ', $result);
+            $result = \preg_replace('#(  )#', ' ', $result);
+            $result = \trim($result);
         }
 
         if (extension_loaded('mbstring')) {
-            if (mb_strlen($result) > $len && $len !== 0) {
-                if ($len > mb_strlen($ellipsis)) {
-                    $len = $len - mb_strlen($ellipsis);
+            if (\mb_strlen($result) > $len && $len !== 0) {
+                if ($len > \mb_strlen($ellipsis)) {
+                    $len = $len - \mb_strlen($ellipsis);
                 }
 
-                $result = trim(mb_substr($result, 0, $len)) . $ellipsis;
+                $result = \trim(\mb_substr($result, 0, $len)) . $ellipsis;
             }
         } else {
-            if (strlen($result) > $len && $len !== 0) {
-                if ($len > strlen($ellipsis)) {
-                    $len = $len - strlen($ellipsis);
+            if (\strlen($result) > $len && $len !== 0) {
+                if ($len > \strlen($ellipsis)) {
+                    $len = $len - \strlen($ellipsis);
                 }
 
-                $result = trim(substr($result, 0, $len)) . $ellipsis;
+                $result = \trim(\substr($result, 0, $len)) . $ellipsis;
             }
         }
 
@@ -106,109 +105,107 @@ class OchHelper
      * @param   boolean  $message         Display app messages
      * @param   string   $languagePrefix  the language prefix needed to construct app messages
      *
-     * @return  mixed  array when display message is false, boolean when display message is true
+     * @return  mixed  array when display message is \false, boolean when display message is \true
+     * @since   0.0.0
      */
     public static function validateDownloadId(
         $url,
         $element,
         $downloadId,
-        $writeCache = true,
-        $readCache = true,
-        $message = false,
+        $writeCache = \true,
+        $readCache = \true,
+        $message = \false,
         $languagePrefix = ''
-    ) {
+    ): mixed {
+        /** @var \Joomla\CMS\Application\SiteApplication|\Joomla\CMS\Application\AdministratorApplication $app */
         $app = Factory::getApplication();
 
         $validationUri = clone Uri::getInstance($url);
 
-        $cache = Factory::getCache('onlinecommunityhub_downloadids', '');
-        $cache->setCaching(true);
-        $cache->setLifeTime(24 * 60);
+        $cache = self::getCache('onlinecommunityhub_downloadids', 'output', ['caching' => \true, 'lifetime' => 24 * 60]);
 
-        $response   = false;
-        $hash       = md5($element);
-        $downloadId = trim((string) $downloadId);
+        $response   = \false;
+        $hash       = \md5($element);
+        $downloadId = \trim((string) $downloadId);
 
-        if (is_object($cache) && $readCache === true) {
+        if ($readCache === \true) {
             // Get response from cache
             $response = $cache->get($hash);
         }
 
         if (!$response) {
             try {
-                $headers = ['token' => md5($downloadId),];
+                $headers = ['token' => \md5($downloadId),];
                 $validationUri->setVar('task', 'updater.validateKey');
                 $validationUri->setvar('downloadId', $downloadId);
                 $validationUri->delvar('dummy');
 
                 $validateUrl = $validationUri->toString();
 
-                $response = HttpFactory::getHttp()->get($validateUrl, $headers, 15);
+                $response = (new HttpFactory())->getHttp()->get($validateUrl, $headers, 15);
 
-                // Joomla 4.0 issue where $response would not get stored in cache
-                $store = new \stdClass();
-                $store->code = $response->code;
-                $store->body = $response->body;
+                $store       = new \stdClass();
+                $store->code = $response->getStatusCode();
+                $store->body = (string) $response->getBody();
+                $response    = $store;
 
-                if (is_object($cache) && $writeCache) {
+                if ($writeCache) {
                     // Write response to cache
-                    $cache->store($store, $hash, 'onlinecommunityhub_downloadids');
+                    $cache->store($response, $hash, 'onlinecommunityhub_downloadids');
                 }
             } catch (\Exception $e) {
                 $app->enqueueMessage($e->getMessage(), 'error');
 
-                $response = false;
+                $response = \false;
             }
         }
 
         if (!$message) {
             // Do not queue messages, just return response
-            $result = array();
-            $result['code'] = $response->code;
-            $result['status'] = 0;
+            $result             = [];
+            $result['code']     = $response->code;
+            $result['status']   = 0;
             $result['valid_to'] = '';
 
             if (200 == $response->code) {
-                $result = json_decode($response->body, true);
-                $tzOffset = new \DateTimeZone(Factory::getConfig()->get('offset'));
-                $valid_to = Factory::getDate(strtotime($result['valid_to']));
+                $result = \json_decode($response->body, \true);
+                $tzOffset = new \DateTimeZone($app->getConfig()->get('offset'));
+                $valid_to = Factory::getDate(\strtotime($result['valid_to'] ?? 0));
                 $valid_to->setTimeZone($tzOffset);
-                $result['valid_to'] = date(Text::_('DATE_FORMAT_LC3'), strtotime((string) $valid_to));
+                $result['valid_to'] = \date(Text::_('DATE_FORMAT_LC3'), \strtotime((string) $valid_to));
             }
 
             return $result;
         }
 
         if ($response && 200 == $response->code) {
-            $validationData = json_decode($response->body, true);
+            $validationData = \json_decode($response->body, \true);
 
-            if (is_array($validationData) && array_key_exists('status', $validationData) && array_key_exists('valid_to', $validationData)) {
+            if (\is_array($validationData) && \array_key_exists('status', $validationData) && \array_key_exists('valid_to', $validationData)) {
                 switch ($validationData['status']) {
                     case 0:
                         // No Access or Invalid
                         $app->enqueueMessage(Text::_($languagePrefix . '_DOWNLOADID_INVALID_MSG'), 'error');
 
-                        return false;
-                        break;
+                        return \false;
 
                     case 1:
                         // Active
-                        $tzOffset = new \DateTimeZone(Factory::getConfig()->get('offset'));
-                        $valid_to = Factory::getDate(strtotime($validationData['valid_to']));
+                        $tzOffset = new \DateTimeZone($app->getConfig()->get('offset'));
+                        $valid_to = Factory::getDate(\strtotime($validationData['valid_to']));
                         $valid_to->setTimeZone($tzOffset);
                         $now = Factory::getDate('now', $tzOffset);
 
                         // Check if Valid To date is within 1 month
-                        if (strtotime((string) $now . '+ 1 month') > strtotime((string) $valid_to)) {
+                        if (\strtotime((string) $now . '+ 1 month') > \strtotime((string) $valid_to)) {
                             $message = Text::sprintf(
                                 $languagePrefix . '_DOWNLOADID_ACTIVE_MSG',
-                                date(Text::_('DATE_FORMAT_LC3'), strtotime((string) $valid_to))
+                                \date(Text::_('DATE_FORMAT_LC3'), \strtotime((string) $valid_to))
                             );
                             $app->enqueueMessage($message, 'warning');
                         }
 
-                        return true;
-                        break;
+                        return \true;
                 }
             }
         }
@@ -216,10 +213,10 @@ class OchHelper
         if ($response && 403 == $response->code) {
             $app->enqueueMessage(Text::_($languagePrefix . '_DOWNLOADID_INVALID_MSG'), 'error');
 
-            return false;
+            return \false;
         }
 
-        return true;
+        return \true;
     }
 
     /**
@@ -228,9 +225,10 @@ class OchHelper
      * @param   object   $package    The package information needed to download the update
      * @param   boolean  $extraData  Add Extra Data to request headers
      *
-     * @return object|false on error
+     * @return  object|bool
+     * @since   0.0.0
      */
-    public static function prepareUpdate($package, $extraData = true)
+    public static function prepareUpdate($package, $extraData = \true): object|bool
     {
         $app = Factory::getApplication();
 
@@ -239,25 +237,25 @@ class OchHelper
 
         if ($host !== 'onlinecommunityhub.nl' && $host !== 'och.developmenthub.nl') {
             // We will only handle our own extensions
-            return false;
+            return \false;
         }
 
         $element = $uri->getVar('element', '');
 
         if (empty($element) || $element !== $package->plugin->name) {
             // We will only handle our own extension / element
-            return false;
+            return \false;
         }
 
         // If no download key is set
         if (empty($package->downloadId)) {
             $app->enqueueMessage(Text::_($package->languagePrefix . '_DOWNLOADID_MISSING_MSG'), 'notice');
 
-            return false;
+            return \false;
         }
 
-        $package->downloadId = trim($package->downloadId);
-        $return              = self::validateDownloadId($package->url, $element, $package->downloadId, false, false, true, $package->languagePrefix);
+        $package->downloadId = \trim($package->downloadId);
+        $return              = self::validateDownloadId($package->url, $element, $package->downloadId, \false, \false, \true, $package->languagePrefix);
 
         if ($extraData) {
             $domain = Uri::getInstance()->getHost();
@@ -272,11 +270,11 @@ class OchHelper
                 $package->headers['X-Requesting-Joomlacms-Version'] = (string) $version->getShortVersion();
             }
 
-            if (phpversion()) {
-                $package->headers['X-Requesting-Php-Version'] = (string) phpversion();
+            if (\phpversion()) {
+                $package->headers['X-Requesting-Php-Version'] = (string) \phpversion();
             }
 
-            $db = Factory::getDbo();
+            $db = Factory::getContainer()->get('DatabaseDriver');
 
             if ($db->getVersion()) {
                 $package->headers['X-Requesting-Db-Version'] = (string) $db->getVersion();
@@ -300,16 +298,17 @@ class OchHelper
      * @param   string  $pluginId    The plugin Id to add the extra_query to
      * @param   string  $downloadId  The Download Id to add in the extra_query
      *
-     * @return void
+     * @return  void
+     * @since   0.0.0
      */
-    public static function setUpdateExtraQuery($pluginId, $downloadId)
+    private static function setUpdateExtraQuery($pluginId, $downloadId): void
     {
-        $downloadId = trim($downloadId);
+        $downloadId = \trim($downloadId);
         $extraQuery = $downloadId == '' ? '' : 'key=' . $downloadId;
 
-        $db = Factory::getDbo();
+        $db = Factory::getContainer()->get('DatabaseDriver');
 
-        $query = $db->getQuery(true)
+        $query = $db->createQuery()
             ->update($db->quoteName('#__update_sites', 'a'))
             ->join('INNER', $db->quoteName('#__update_sites_extensions', 'b')
                 . ' ON (' . $db->quoteName('a.update_site_id') . ' = ' . $db->quoteName('b.update_site_id') . ')')
@@ -323,57 +322,18 @@ class OchHelper
     }
 
     /**
-     * Method to determine if we are on Joomla 3.x
-     *
-     * @param   string  $client  Determine if we are on administrator or site
-     *
-     * @return boolean
-     */
-    public static function isJoomla3($client = '')
-    {
-        $version = new Version();
-
-        $isJoomla3 = $version::MAJOR_VERSION == 3 ? true : false;
-
-        if (empty($client)) {
-            return $isJoomla3;
-        }
-
-        return ($isJoomla3 && Factory::getApplication()->isClient($client));
-    }
-
-    /**
-     * Method to determine if we are on Joomla 4.x
-     *
-     * @param   string  $client  Determine if we are on administrator or site
-     *
-     * @return boolean
-     */
-    public static function isJoomla4($client = '')
-    {
-        $version = new Version();
-
-        $isJoomla4 = $version::MAJOR_VERSION == 4 ? true : false;
-
-        if (empty($client)) {
-            return $isJoomla4;
-        }
-
-        return ($isJoomla4 && Factory::getApplication()->isClient($client));
-    }
-
-    /**
      * Method to determine if we are on Joomla 5.x
      *
      * @param   string  $client  Determine if we are on administrator or site
      *
-     * @return boolean
+     * @return  boolean
+     * @since   0.0.0
      */
-    public static function isJoomla5($client = '')
+    public static function isJoomla5($client = ''): bool
     {
         $version = new Version();
 
-        $isJoomla5 = $version::MAJOR_VERSION == 5 ? true : false;
+        $isJoomla5 = $version::MAJOR_VERSION === 5 ? \true : \false;
 
         if (empty($client)) {
             return $isJoomla5;
@@ -383,15 +343,36 @@ class OchHelper
     }
 
     /**
+     * Method to determine if we are on Joomla 5.x
+     *
+     * @param   string  $client  Determine if we are on administrator or site
+     *
+     * @return  boolean
+     * @since   1.11.0 (20250611)
+     */
+    public static function isJoomla6($client = ''): bool
+    {
+        $version = new Version();
+
+        $isJoomla6 = $version::MAJOR_VERSION === 6 ? \true : \false;
+
+        if (empty($client)) {
+            return $isJoomla6;
+        }
+
+        return ($isJoomla6 && Factory::getApplication()->isClient($client));
+    }
+
+    /**
      * Method to check if we are on a specified joomla version
      *
      * @param   string  $version  the version to check
      * @param   string  $compare  the comparison
      *
-     * @since  1.2.0 (20220906)
-     * @return boolean
+     * @return  boolean
+     * @since   1.2.0 (20220906)
      */
-    public static function isJoomlaVersion($version, $compare = '=')
+    public static function isJoomlaVersion($version, $compare = '='): bool
     {
         $joomlaVersion = new Version();
 
@@ -399,105 +380,53 @@ class OchHelper
     }
 
     /**
-     * Adds a linked stylesheet / linked script to the page
-     *
-     * @param   string  $file     Path to the linked style sheet /linked script
-     * @param   array   $options  Array of options. Example: array('version' => 'auto', 'conditional' => 'lt IE 9')
-     * @param   array   $attribs  Array of attributes. Example: array('id' => 'stylesheet', 'data-test' => 1)
-     *
-     * @return  Document instance of $this to allow chaining
-     */
-    public static function addFile($file = '', $options = [], $attribs = [])
-    {
-        // Set default options
-        $options['relative'] = isset($options['relative']) ? $options['relative'] : false;
-
-        $wa        = self::isJoomla3() ? false : Factory::getApplication()->getDocument()->getWebAssetManager();
-        $pathInfo  = pathinfo($file);
-        $assetName = $pathInfo['filename'] . '.' . $pathInfo['extension'];
-        $result    = false;
-
-        if (!(stripos($file, 'http://') === 0 || stripos($file, 'https://') === 0 || strpos($file, '//') === 0)) {
-            if ($options['relative']) {
-                // We use option relative to load the script via http(s), in Joomla API option relative means: relative to media folder
-                $urlPath  = str_replace('/administrator', '', Uri::base());
-                $loadFile = $urlPath . ltrim($file, '/ ');
-            } else {
-                $file = ltrim($file, '/');
-
-                if ((isset($options['debug']) && $options['debug']) || JDEBUG) {
-                    // We are in debug mode, uncompressed file needed
-                    $loadFile = $file;
-                } else {
-                    $loadFile = ltrim($pathInfo['dirname'] . '/' . $pathInfo['filename'] . '.min.' . $pathInfo['extension'], '/');
-
-                    if (!is_file(JPATH_ROOT . '/' . $loadFile)) {
-                        // Minified file doesn't exist, fallback
-                        $loadFile = $file;
-                    }
-                }
-
-                if (isset($options['version'])) {
-                    $modify = filemtime(JPATH_ROOT . '/' . $loadFile);
-
-                    if ($modify) {
-                        $options['version'] .= '-' . $modify;
-                    }
-                }
-            }
-        } else {
-            $loadFile = $file;
-        }
-
-        if ($pathInfo['extension'] == 'js') {
-            $result = HTMLHelper::_('script', $loadFile, $options, $attribs);
-            // if ($wa)
-            // {
-            //  $result = $wa->registerAndUseScript($assetName, $loadFile, $options, $attribs);
-            // }
-            // else
-            // {
-            //  $result = HTMLHelper::_('script', $loadFile, $options, $attribs);
-            // }
-        } elseif ($pathInfo['extension'] == 'css') {
-            $result = HTMLHelper::_('stylesheet', $loadFile, $options, $attribs);
-            // if ($wa)
-            // {
-            //  $result = $wa->registerAndUseStyle($assetName, $loadFile, $options, $attribs);
-            // }
-            // else
-            // {
-            //  $result = HTMLHelper::_('stylesheet', $loadFile, $options, $attribs);
-            // }
-        }
-
-        return $result;
-    }
-
-    /**
-     * Function to get a model (J3 / J4 independent)
+     * Function to get a component model
      *
      * @param   string  $component  The component to get the model for
      * @param   string  $model      The model to get
      * @param   string  $location   The model location (site / admin)
      * @param   array   $config     The config setting to pass to the model instantiation
      *
-     * @since  1.1.0 (20220326)
-     * @return object
+     * @return  object
+     * @since   1.1.0 (20220326)
      */
-    public static function getModel($component = 'com_content', $model = 'article', $location = 'site', array $config = ['ignore_request' => true])
+    public static function getModel($component = 'com_content', $model = 'article', $location = 'site', array $config = ['ignore_request' => \true]): object
     {
-        if (self::isJoomla3()) {
-            $path = ($location == 'site') ? JPATH_SITE : JPATH_ADMINISTRATOR;
+        return Factory::getApplication()->bootComponent($component)->getMVCFactory()->createModel(\ucfirst($model), \ucfirst($location), $config);
+    }
 
-            BaseDatabaseModel::addIncludePath($path . '/components/' . $component . '/models', 'ContentModel');
-            Table::addIncludePath($path . '/components/' . $component . '/tables');
-            $model = BaseDatabaseModel::getInstance(ucfirst($model), 'ContentModel', $config);
-        } else {
-            $model = Factory::getApplication()->bootComponent($component)->getMVCFactory()->createModel(ucfirst($model), ucfirst($location), $config);
-        }
+    /**
+     * Function to get a component table
+     *
+     * @param   string  $component  The component to get the table for
+     * @param   string  $name       The table to get
+     * @param   string  $prefix     The table prefix
+     * @param   array   $config     The config setting to pass to the model instantiation
+     *
+     * @return  object
+     * @since   1.9.0 (20240927)
+     * @deprecated Get table via direct instantiating e.g. $tabel = new \Joomla\Component\Content\Administrator\Table\ArticleTable()
+     */
+    public static function getTable($component = 'com_content', $name = 'article', $prefix = 'administrator', array $config = []): object
+    {
+        return Factory::getApplication()->bootComponent($component)->getMVCFactory()->createTable(\ucfirst($name), \ucfirst($prefix), $config);
+    }
 
-        return $model;
+    /**
+     * Function to get a Cache Controler
+     *
+     * @param   string  $group    The cache group to get the cache controller for
+     * @param   string  $type     The cache type, defaults to output
+     * @param   array   $options  The cache options to pass, e.g. lifetime, caching
+     *
+     * @return  CacheController
+     * @since   1.10.0 (20250526)
+     */
+    public static function getCache(string $group, string $type = 'output', array $options = []): CacheController
+    {
+        $options['defaultgroup'] = $group;
+
+        return Factory::getContainer()->get(CacheControllerFactoryInterface::class)->createCacheController($type, $options);
     }
 
     /**
@@ -507,12 +436,12 @@ class OchHelper
      * @param   integer         $extensionId  The extension to get the download key for
      * @param   string          $packageName  The name for the package to get the download key for
      *
-     * @since  1.3.0 (20220909)
-     * @return string|boolean
+     * @return  string
+     * @since   1.3.0 (20220909)
      */
-    public static function getDownloadId(DatabaseDriver $db, $extensionId = 0, $packageName = '')
+    public static function getDownloadId(DatabaseDriver $db, $extensionId = 0, $packageName = ''): string
     {
-        $query = $db->getQuery(true);
+        $query = $db->createQuery();
         $query->select('extra_query')
             ->from($db->quoteName('#__update_sites', 'us'))
             ->join('LEFT', $db->quoteName('#__update_sites_extensions', 'use') . ' ON (' . $db->quoteName('use.update_site_id') . ' = ' . $db->quoteName('us.update_site_id') . ')')
@@ -547,10 +476,10 @@ class OchHelper
      * @param   string  $name         The domain's name
      * @param   string  $description  The domain's description
      *
-     * @since  1.4.0 (20230110)
      * @return  Domain
+     * @since   1.4.0 (20230110)
      */
-    public static function privacyCreateDomain($name, $description = '')
+    public static function privacyCreateDomain($name, $description = ''): Domain
     {
         $domain              = new Domain();
         $domain->name        = $name;
@@ -566,21 +495,21 @@ class OchHelper
      * @param   array         $data    The array data to convert
      * @param   integer|null  $itemId  The ID of this item
      *
-     * @since  1.4.0 (20230110)
      * @return  Item
+     * @since   1.4.0 (20230110)
      */
-    public static function privacyCreateItemFromArray(array $data, $itemId = null)
+    public static function privacyCreateItemFromArray(array $data, $itemId = null): Item
     {
         $item = new Item();
         $item->id = $itemId;
 
         foreach ($data as $key => $value) {
-            if (is_object($value)) {
+            if (\is_object($value)) {
                 $value = (array) $value;
             }
 
-            if (is_array($value)) {
-                $value = print_r($value, true);
+            if (\is_array($value)) {
+                $value = print_r($value, \true);
             }
 
             $field        = new Field();
@@ -602,13 +531,13 @@ class OchHelper
      * @param   string  $setField  The Table Field to set the new value for
      * @param   string  $setValue  The new value to set
      *
-     * @since  1.4.0 (20230110)
-     * @return array
+     * @return  boolean
+     * @since   1.4.0 (20230110)
      */
     public static function privacyAnomynizeUserData(string $table, string $field, int $userid, string $setField, string $setValue): bool
     {
-        $db = Factory::getDbo();
-        $query = $db->getQuery(true)
+        $db = Factory::getContainer()->get('DatabaseDriver');
+        $query = $db->createQuery()
             ->update($db->quoteName($table))
             ->where($db->quoteName($field) . ' = :userid')
             ->set($db->quoteName($setField) . ' = ' . $db->quote($setValue))
@@ -626,13 +555,13 @@ class OchHelper
      * @param   string  $field     The Table Field to match the User ID with
      * @param   int     $userid    The User ID
      *
-     * @since  1.4.0 (20230110)
-     * @return array
+     * @return  boolean
+     * @since   1.4.0 (20230110)
      */
     public static function privacyDeleteUserData(string $table, string $field, int $userid): bool
     {
-        $db = Factory::getDbo();
-        $query = $db->getQuery(true)
+        $db = Factory::getContainer()->get('DatabaseDriver');
+        $query = $db->createQuery()
             ->delete($db->quoteName($table))
             ->where($db->quoteName($field) . ' = :userid')
             ->bind(':userid', $userid, ParameterType::INTEGER);
@@ -650,21 +579,63 @@ class OchHelper
      * @param   string   $subject  The string to search in
      * @param   boolean  $first    Replace first (true) or last (false) occurence
      *
-     * @since  1.5.0 (20230217)
-     * @return string
+     * @return  string
+     * @since   1.5.0 (20230217)
      */
-    public static function strReplaceOne($search, $replace, $subject, $first = true)
+    public static function strReplaceOne($search, $replace, $subject, $first = \true): string
     {
         if ($first) {
-            $pos = strpos($subject, $search);
+            $pos = \strpos($subject, $search);
         } else {
-            $pos = strrpos($subject, $search);
+            $pos = \strrpos($subject, $search);
         }
 
-        if ($pos !== false) {
+        if ($pos !== \false) {
             $subject = substr_replace($subject, $replace, $pos, strlen($search));
         }
 
         return $subject;
+    }
+
+    /**
+     * Adds a result value to an event
+     *
+     * @param   Event   $event  The event we were processing
+     * @param   mixed   $value  The value to append to the event's results
+     *
+     * @return  void
+     * @since   1.8.0
+     */
+    public static function returnFromEvent(Event $event, $value = null): void
+    {
+        $result = $event->getArgument('result') ?: [];
+
+        if (!\is_array($result)) {
+            $result = [$result];
+        }
+
+        $result[] = $value;
+
+        $event->setArgument('result', $result);
+    }
+
+    /**
+     * Function to list all methods in a class: used for debugging / development purposes
+     * 
+     * @param   object   $class           The class to get the information for
+     * @param   boolean  $printBackTrace  Display a debug back trace
+     * 
+     * @return void
+     */
+    public static function debugClass($class, $printBackTrace = \true): void
+    {
+        $rClass    = new \ReflectionClass($class);
+        $backTrace = \debug_backtrace();
+
+        if ($printBackTrace) {
+            dd($rClass, $backTrace);
+        }
+
+        dd($rClass);
     }
 }
