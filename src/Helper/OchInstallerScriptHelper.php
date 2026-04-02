@@ -23,7 +23,9 @@ use Joomla\CMS\Extension\ExtensionHelper;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Installer\InstallerAdapter;
 use Joomla\CMS\Installer\InstallerScriptInterface;
+use Joomla\CMS\Log\Log;
 use Joomla\CMS\Mail\MailTemplate;
+use Joomla\Database\DatabaseDriver;
 use Joomla\Database\DatabaseInterface;
 use Joomla\Database\ParameterType;
 use Joomla\Filesystem\File;
@@ -130,6 +132,11 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
     protected array $uninstallVariables;
 
     /**
+     * @var string
+     */
+    protected string $logCategory = '';
+
+    /**
      * Constructor
      */
     public function __construct()
@@ -169,6 +176,8 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
 
         // Load all update maintenance variables
         $this->setUninstallVariables();
+
+        Log::addLogger(['text_file' => 'och_update.php'], Log::ALL, ['preflight', 'postflight', 'install', 'update', 'uninstall', 'databasequery']);
     }
 
     /**
@@ -182,7 +191,10 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
      */
     public function preflight(string $type, InstallerAdapter $adapter): bool
     {
-        $this->newVersion = $adapter->manifest->version;
+        $this->logCategory = 'preflight';
+        $this->logStage();
+
+        $this->newVersion  = $adapter->manifest->version;
 
         $msg = '';
 
@@ -191,22 +203,26 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
             if ($this->minimumPHPVersion && !\version_compare(PHP_VERSION, $this->minimumPHPVersion, 'ge')) {
                 $msg = 'You need PHP ' . $this->minimumPHPVersion . ' or later to ' . $type . ' ' . $adapter->getElement();
                 Factory::getApplication()->enqueueMessage($msg, 'error');
+                Log::add($msg, Log::ERROR, $this->logCategory);
             }
 
             // Check the minimum Joomla! version
             if ($this->minimumJoomlaVersion && !\version_compare(JVERSION, $this->minimumJoomlaVersion, 'ge')) {
                 $msg = 'You need Joomla! ' . $this->minimumJoomlaVersion . ' or later to ' . $type . ' ' . $adapter->getElement();
                 Factory::getApplication()->enqueueMessage($msg, 'error');
+                Log::add($msg, Log::ERROR, $this->logCategory);
             }
 
             // Check the maximum Joomla! version
             if ($this->maximumJoomlaVersion && !\version_compare(JVERSION, $this->maximumJoomlaVersion, 'le')) {
                 $msg = 'You need Joomla! ' . $this->maximumJoomlaVersion . ' or earlier to ' . $type . ' ' . $adapter->getElement();
                 Factory::getApplication()->enqueueMessage($msg, 'error');
+                Log::add($msg, Log::ERROR, $this->logCategory);
             }
 
             // Check the depending extensions
             if (!$this->checkDependencies()) {
+                $this->logStage(\false);
                 return \false;
             }
 
@@ -216,15 +232,17 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
                 // Remove any messages / description to avoid confusion for user
                 $installer->set('message', '');
 
+                $this->logStage(\false);
                 return \false;
             }
         }
 
         if (\strtolower($type) === 'update' && $this->installedVersion) {
             // Do preflight maintenance
-            OchInstallerScriptHelper::doMaintenance($this->preflightVariables, $this->installedVersion);
+            $this->doMaintenance($this->preflightVariables, $this->installedVersion);
         }
 
+        $this->logStage(\false);
         return \true;
     }
 
@@ -239,17 +257,21 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
      */
     public function postflight(string $type, InstallerAdapter $adapter): bool
     {
+        $this->logCategory = 'postflight';
+
         if ($type === 'uninstall') {
             // Do not run postflight routines on uninstall, use uninstall instead
             return \true;
         }
 
-        OchInstallerScriptHelper::doMaintenance($this->postflightVariables, $this->installedVersion);
+        $this->logStage();
+        $this->doMaintenance($this->postflightVariables, $this->installedVersion);
 
         if ($type === 'install' && $this->enablePlugin) {
             $this->publishPlugin();
         }
 
+        $this->logStage(\false);
         return \true;
     }
 
@@ -263,7 +285,12 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
      */
     public function install(InstallerAdapter $adapter): bool
     {
-        OchInstallerScriptHelper::doMaintenance($this->installVariables, $this->installedVersion);
+        $this->logCategory = 'install';
+        $this->logStage();
+
+        $this->doMaintenance($this->installVariables, $this->installedVersion);
+
+        $this->logStage(\false);
 
         return \true;
     }
@@ -278,7 +305,12 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
      */
     public function update(InstallerAdapter $adapter): bool
     {
-        OchInstallerScriptHelper::doMaintenance($this->updateVariables, $this->installedVersion);
+        $this->logCategory = 'update';
+        $this->logStage();
+
+        $this->doMaintenance($this->updateVariables, $this->installedVersion);
+
+        $this->logStage(\false);
 
         return \true;
     }
@@ -293,7 +325,12 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
      */
     public function uninstall(InstallerAdapter $adapter): bool
     {
-        OchInstallerScriptHelper::doMaintenance($this->uninstallVariables, $this->installedVersion);
+        $this->logCategory = 'uninstall';
+        $this->logStage();
+
+        $this->doMaintenance($this->uninstallVariables, $this->installedVersion);
+
+        $this->logStage(\false);
 
         return \true;
     }
@@ -421,7 +458,7 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
         }
 
         if (\array_key_exists('rename_files', $varMaintenanceVariables)) {
-            $this->renameFiles($varMaintenanceVariables['rename_files'], $installedVersion);
+            $this->renameFiles($varMaintenanceVariables['rename_files'], $installedVersion,);
         }
 
         if (\array_key_exists('database_updates', $varMaintenanceVariables)) {
@@ -460,17 +497,13 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
                     foreach ($removeFile['file'] as $file) {
                         if (\file_exists($file)) {
                             if (File::delete($file)) {
-                                $application->enqueueMessage(
-                                    'Obsolete (left-over from previous release) file "' . $file
-                                        . '" successfully removed.',
-                                    'Message'
-                                );
+                                $msg = 'Obsolete (left-over from previous release) file "' . $file . '" successfully removed.';
+                                $application->enqueueMessage($msg, 'Message');
+                                Log::add($msg, Log::INFO, $this->logCategory);
                             } else {
-                                $application->enqueueMessage(
-                                    'File "' . $file
-                                        . '" (left-over from previous release) could not be removed, please remove manually.',
-                                    'Warning'
-                                );
+                                $msg = 'File "' . $file . '" (left-over from previous release) could not be removed, please remove manually.';
+                                $application->enqueueMessage($msg, 'Warning');
+                                Log::add($msg, Log::WARNING, $this->logCategory);
                             }
                         }
                     }
@@ -496,6 +529,7 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
             foreach ($varInstallationMessages as $installationMessage) {
                 if (\version_compare($installedVersion, $installationMessage['version'], $installationMessage['compare'])) {
                     $application->enqueueMessage($installationMessage['message'], $installationMessage['type']);
+                    Log::add($installationMessage['message'], $installationMessage['type'], $this->logCategory);
                 }
             }
         }
@@ -519,6 +553,7 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
                 if (\version_compare($installedVersion, $componentWarning['version'], $componentWarning['compare'])) {
                     if (\file_exists($componentWarning['component'])) {
                         $application->enqueueMessage($componentWarning['message'], $componentWarning['type']);
+                        Log::add($componentWarning['message'], $componentWarning['type'], $this->logCategory);
                     }
                 }
             }
@@ -548,17 +583,13 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
                     foreach ($removeDirectory['folder'] as $folder) {
                         if (\is_dir($folder)) {
                             if (Folder::delete($folder)) {
-                                $application->enqueueMessage(
-                                    'Obsolete (left-over from previous release) directory "' . $folder
-                                        . '" successfully removed.',
-                                    'Message'
-                                );
+                                $msg = 'Obsolete (left-over from previous release) directory "' . $folder . '" successfully removed.';
+                                $application->enqueueMessage($msg, 'Message');
+                                Log::add($msg, Log::INFO, $this->logCategory);
                             } else {
-                                $application->enqueueMessage(
-                                    'Directory "' . $folder
-                                        . '" (left-over from previous release) could not be removed, please remove manually.',
-                                    'Warning'
-                                );
+                                $msg = 'Directory "' . $folder . '" (left-over from previous release) could not be removed, please remove manually.';
+                                $application->enqueueMessage($msg, 'Warning');
+                                Log::add($msg, Log::WARNING, $this->logCategory);
                             }
                         }
                     }
@@ -570,8 +601,8 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
     /**
      * Function to update database(s)
      *
-     * @param   array    $varUpdateDatabase    SQL queries
-     * @param   string   $installedVersion     Version number of installed plugin, module, component
+     * @param   array   $varUpdateDatabase    SQL queries
+     * @param   string  $installedVersion     Version number of installed plugin, module, component
      *
      * @return  boolean
      * @since   1.0.0
@@ -579,7 +610,9 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
     private function updateDatabase($varUpdateDatabase, $installedVersion): bool
     {
         if (!empty($varUpdateDatabase)) {
+            /** @var AdministratorApplication $application */
             $application = Factory::getApplication();
+            /** @var DatabaseDriver $db */
             $db          = Factory::getContainer()->get(DatabaseInterface::class);
 
             foreach ($varUpdateDatabase as $UpdateDatabase) {
@@ -595,10 +628,12 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
                         $query = $UpdateDatabase['query'];
                         $db->setQuery($query);
                         $db->execute();
+                        Log::add('Database update successful: ' . $query, Log::INFO, $this->logCategory);
                     } catch (\Exception $e) {
                         $message = $e->getMessage() . ($stopOnError ? '' : ' | Not stopping as requested...');
 
                         $application->enqueueMessage($message, 'error');
+                        Log::add($message, Log::ERROR, $this->logCategory);
                         $error = \true;
 
                         if ($stopOnError) {
@@ -609,6 +644,7 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
                     if (!$error) {
                         if (\array_key_exists('message', $UpdateDatabase)) {
                             $application->enqueueMessage($UpdateDatabase['message'], $UpdateDatabase['type']);
+                            Log::add($UpdateDatabase['message'], $UpdateDatabase['type'], $this->logCategory);
                         }
                     }
                 }
@@ -631,6 +667,8 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
      */
     public function postflightMessages($varPostflightMessages, $route, $adapter, $append = \true): void
     {
+        $this->logCategory = 'postflight';
+
         if (!empty($varPostflightMessages)) {
             $installer = \method_exists($adapter, 'getParent') ? $adapter->getParent() : $adapter->parent;
             $append ? $message = $installer->get('message') : $message = '';
@@ -640,6 +678,7 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
             }
 
             $installer->set('message', $message);
+            Log::add($message, Log::INFO, $this->logCategory);
         }
     }
 
@@ -661,18 +700,15 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
                 if (\version_compare($installedVersion, $renameFile['version'], $renameFile['compare'])) {
                     if (\file_exists($renameFile['oldname'])) {
                         if (File::move($renameFile['oldname'], $renameFile['newname'])) {
-                            $application->enqueueMessage(
-                                'File "' . $renameFile['oldname']
-                                    . '" successfully renamed to file "' . $renameFile['newname'] . '"',
-                                'Message'
-                            );
+                            $msg = 'File "' . $renameFile['oldname'] . '" successfully renamed to file "' . $renameFile['newname'] . '"';
+                            $application->enqueueMessage($msg, 'Message');
+                            Log::add($msg, Log::INFO, $this->logCategory);
                         } else {
-                            $application->enqueueMessage(
-                                'File "' . $renameFile['file']
-                                    . '" (left-over from previous release) could not be renamed, please rename manually to file "'
-                                    . $renameFile['newname'] . '"',
-                                'Warning'
-                            );
+                            $msg = 'File "' . $renameFile['file']
+                                . '" (left-over from previous release) could not be renamed, please rename manually to file "'
+                                . $renameFile['newname'] . '"';
+                            $application->enqueueMessage($msg, 'Warning');
+                            Log::add($msg, Log::WARNING, $this->logCategory);
                         }
                     }
                 }
@@ -730,11 +766,9 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
                         $result_use = $db->execute();
 
                         if ($result_us && $result_use) {
-                            $application->enqueueMessage(
-                                'Obsolete (left-over from previous release) Update Site "' . $removeLocation['updatesite']
-                                    . '" successfully removed',
-                                'Message'
-                            );
+                            $msg = 'Obsolete (left-over from previous release) Update Site "' . $removeLocation['updatesite'] . '" successfully removed';
+                            $application->enqueueMessage($msg, 'Message');
+                            Log::add($msg, Log::INFO, $this->logCategory);
                         }
                     }
                 }
@@ -767,12 +801,15 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
                     if (\version_compare($installedVersion, $mailTemplate['version'], $mailTemplate['compare'])) {
                         try {
                             MailTemplate::createTemplate($key, $subject, $body, $tags, $htmlbody);
+                            Log::add('Mail template "' . $key . '" created', Log::INFO, $this->logCategory);
                         } catch (\Exception $e) {
                             MailTemplate::updateTemplate($key, $subject, $body, $tags, $htmlbody);
+                            Log::add('Mail template "' . $key . '" updated', Log::INFO, $this->logCategory);
                         }
                     }
                 } elseif ($mailTemplate['task'] == 'delete') {
                     MailTemplate::deleteTemplate($mailTemplate['key']);
+                    Log::add('Mail template "' . $mailTemplate['key'] . '" deleted', Log::INFO, $this->logCategory);
                 }
             }
         }
@@ -796,7 +833,12 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
             ->bind(':plugin', $this->element, ParameterType::STRING)
             ->bind(':folder', $this->folder, ParameterType::STRING);
         $db->setQuery($query);
-        $db->execute();
+
+        if ($db->execute()) {
+            Log::add('Plugin "' . $this->element . '" published', Log::INFO, $this->logCategory);
+        } else {
+            Log::add('Failed to publish plugin "' . $this->element . '"', Log::ERROR, $this->logCategory);
+        }
     }
 
     /**
@@ -871,6 +913,11 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
         // Update table
         $result = $db->setQuery($query)->execute();
 
+        if ($result) {
+            Log::add('Params for ' . $this->type . ' "' . $this->element . '" saved', Log::INFO, $this->logCategory);
+        } else {
+            Log::add('Failed to save params for ' . $this->type . ' "' . $this->element . '"', Log::ERROR, $this->logCategory);
+        }
         return $result;
     }
 
@@ -892,6 +939,7 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
         foreach ($remove as $key) {
             if (\array_key_exists($key, $params)) {
                 unset($params[$key]);
+                Log::add('Param "' . $key . '" removed from params for ' . $this->type . ' "' . $this->element . '"', Log::INFO, $this->logCategory);
             }
         }
 
@@ -913,6 +961,7 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
             if (\array_key_exists($old, $params)) {
                 $params[$new] = $params[$old];
                 unset($params[$old]);
+                Log::add('Param "' . $old . '" renamed to "' . $new . '" for ' . $this->type . ' "' . $this->element . '"', Log::INFO, $this->logCategory);
             }
         }
 
@@ -932,6 +981,7 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
     {
         foreach ($config as $key => $value) {
             $params[$key] = $value;
+            Log::add('Param "' . $key . '" set to "' . $value . '" for ' . $this->type . ' "' . $this->element . '"', Log::INFO, $this->logCategory);
         }
 
         return $params;
@@ -949,8 +999,17 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
         /** @var AdministratorApplication $app */
         $app  = Factory::getApplication();
         $path = $app->getConfig()->get('tmp_path');
+        $time = \time();
 
-        return \file_put_contents($path . '/' . $this->type . '-' . $this->element . '-params-' . \time() . '.json', \json_encode($params, JSON_PRETTY_PRINT));
+        $result = \file_put_contents($path . '/' . $this->type . '-' . $this->element . '-params-' . $time . '.json', \json_encode($params, JSON_PRETTY_PRINT));
+
+        if ($result !== false) {
+            Log::add('Params for ' . $this->type . ' "' . $this->element . '" backed up to ' . $path . '/' . $this->type . '-' . $this->element . '-params-' . $time . '.json', Log::INFO, $this->logCategory);
+        } else {
+            Log::add('Failed to backup params for ' . $this->type . ' "' . $this->element . '"', Log::ERROR, $this->logCategory);
+        }
+
+        return $result;
     }
 
     /**
@@ -980,12 +1039,14 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
                 if (\version_compare($installedVersion, $extension['minVersion'], '<')) {
                     $msg = 'You need Extension ' . $element . ' version ' . $extension['minVersion'] . ' or later for ' . $this->element . ', current installed version is: ' . $installedVersion;
                     Factory::getApplication()->enqueueMessage($msg, 'error');
+                    Log::add($msg, Log::ERROR, $this->logCategory);
 
                     return \false;
                 }
                 if (\version_compare($installedVersion, $extension['maxVersion'], '>')) {
                     $msg = 'You need Extension ' . $element . ' version ' . $extension['maxVersion'] . ' or earlier for ' . $this->element . ', current installed version is: ' . $installedVersion;
                     Factory::getApplication()->enqueueMessage($msg, 'error');
+                    Log::add($msg, Log::ERROR, $this->logCategory);
 
                     return \false;
                 }
@@ -993,6 +1054,7 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
                 // Not installed
                 $msg = $this->element . ' requires Extension ' . $element . '. This extension is not installed.';
                 Factory::getApplication()->enqueueMessage($msg, 'error');
+                Log::add($msg, Log::ERROR, $this->logCategory);
 
                 return \false;
             }
@@ -1028,11 +1090,23 @@ class OchInstallerScriptHelper implements InstallerScriptInterface
 
             if ($installedClass !== $newClass) {
                 opcache_reset();
-                Factory::getApplication()->enqueueMessage(
-                    'opcache cleared to implement new namespace.',
-                    'Notice'
-                );
+                $msg = 'opcache cleared to implement new namespace.';
+                Factory::getApplication()->enqueueMessage($msg, 'Notice');
+                Log::add($msg, Log::INFO, $this->logCategory);
             }
         }
+    }
+
+    /**
+     * Function to log the start and end of a maintenance stage
+     * 
+     * @param   bool    $start  Whether it's the start or end of the stage
+     * @return  void
+     * @since   2.7.0
+     */
+    private function logStage($start = \true): void
+    {
+        $stage = $start ? 'Starting' : 'Finished';
+        Log::add($stage . ' ' . $this->logCategory . ' maintenance for ' . $this->type . ' "' . $this->element . '"', Log::INFO, $this->logCategory);
     }
 }
